@@ -26,42 +26,89 @@ TEST_RESOURCES_2 = [
 
 
 class GraphBuilderTestCase(unittest.TestCase):
+    def test_acyclic(self):
+        ap = self._build_apply_planner(
+            [
+                TR("A", deps=["B"]),
+                TR("B", deps=["A"]),
+            ]
+        )
+
+        with self.assertRaises(ValueError) as err:
+            list(ap.plan())
+
+        self.assertEqual(
+            "Detected cycles: [('A', 'B'), ('B', 'A')]", str(err.exception)
+        )
+
+    def test_tool_of_tool(self):
+        ap = self._build_apply_planner(
+            [
+                TR("needs-tool", tools=["tool1"]),
+                TR("tool1", tools=["tool2"]),
+                TR("tool2"),
+            ],
+            changed=["needs-tool", "tool1", "tool2"],
+        )
+
+        plan = ap.plan()
+
+        self.assertEqual(
+            ["-needs-tool", "+needs-tool", "-tool1", "+tool1", "-tool2", "+tool2"],
+            list(plan),
+        )
 
     def test_all_new_except_changed_spool(self):
-        gb = self._build_apply_planner(TEST_RESOURCES_1, new=["km", "pes", "km-config"], changed=["pes-spool"])
+        gb = self._build_apply_planner(
+            TEST_RESOURCES_1, new=["km", "pes", "km-config"], changed=["pes-spool"]
+        )
 
         plan = gb.plan(["pes-spool"])
 
-        self.assertEqual(['+km-config', '+km', '-pes-spool', '+pes-spool'], list(plan))
+        self.assertEqual(["+km-config", "+km", "-pes-spool", "+pes-spool"], list(plan))
 
     def test_all_new(self):
         gb = self._build_apply_planner(TEST_RESOURCES_1, all_new=True)
 
         plan = gb.plan()
 
-        self.assertEqual(['+km-config', '+km', '+pes-spool', '+pes'], list(plan))
+        self.assertEqual(["+km-config", "+km", "+pes-spool", "+pes"], list(plan))
 
     def test_all_removed(self):
         gb = self._build_apply_planner(TEST_RESOURCES_1, all_removed=True)
 
         plan = gb.plan()
 
-        self.assertEqual(['-pes', '-pes-spool', '-km', '-km-config'], list(plan))
+        self.assertEqual(["-pes", "-pes-spool", "-km", "-km-config"], list(plan))
 
     def test_pes_spool_and_tool_changed(self):
         gb = self._build_apply_planner(TEST_RESOURCES_1, changed=["pes-spool", "km"])
 
         plan = gb.plan()
 
-        self.assertEqual(['-pes', '-pes-spool', '+pes-spool', '-km', '+km', '+pes'], list(plan))
+        self.assertEqual(
+            ["-pes", "-pes-spool", "+pes-spool", "-km", "+km", "+pes"], list(plan)
+        )
 
     def test_all_changed(self):
-        gb = self._build_apply_planner(TEST_RESOURCES_1, changed=[e.name for e in TEST_RESOURCES_1])
+        gb = self._build_apply_planner(
+            TEST_RESOURCES_1, changed=[e.name for e in TEST_RESOURCES_1]
+        )
 
         plan = gb.plan()
 
         self.assertEqual(
-            ['-pes', '-pes-spool', '+pes-spool', '-km', '-km-config', '+km-config', '+km', '+pes'], list(plan)
+            [
+                "-pes",
+                "-pes-spool",
+                "+pes-spool",
+                "-km",
+                "-km-config",
+                "+km-config",
+                "+km",
+                "+pes",
+            ],
+            list(plan),
         )
 
     def test_km_config_changed(self):
@@ -69,19 +116,47 @@ class GraphBuilderTestCase(unittest.TestCase):
 
         plan = gb.plan()
 
-        self.assertEqual(['-pes', '-km', '-km-config', '+km-config', '+km', '+pes'], list(plan))
+        self.assertEqual(
+            ["-pes", "-km", "-km-config", "+km-config", "+km", "+pes"], list(plan)
+        )
 
     def test_2_all_new(self):
         gb = self._build_apply_planner(TEST_RESOURCES_2, all_new=True)
 
         plan = gb.plan()
 
-        self.assertEqual(['+adp-rpm', '+database-permission-updater', '+adp-config'], list(plan))
+        self.assertEqual(
+            ["+adp-rpm", "+database-permission-updater", "+adp-config"], list(plan)
+        )
+
+    def test_2_all_changed(self):
+        gb = self._build_apply_planner(
+            TEST_RESOURCES_2, changed=[r.name for r in TEST_RESOURCES_2]
+        )
+
+        plan = gb.plan()
+
+        self.assertEqual(
+            [
+                "-adp-config",
+                "+adp-config",
+                "-database-permission-updater",
+                "-adp-rpm",
+                "+adp-rpm",
+                "+database-permission-updater",
+            ],
+            list(plan),
+        )
 
     @staticmethod
     def _build_apply_planner(
-            resources: list[TR], removed: list[str] = None, new: list[str] = None,
-            changed: list[str] = None, all_new: bool = False, all_removed: bool = False) -> ApplyPlanner:
+        resources: list[TR],
+        removed: list[str] = None,
+        new: list[str] = None,
+        changed: list[str] = None,
+        all_new: bool = False,
+        all_removed: bool = False,
+    ) -> ApplyPlanner:
         state, target = {}, {}
         for resource in resources:
             if not all_new:

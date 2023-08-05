@@ -15,6 +15,9 @@ class ApplyPlanner:
         self._applied = set()
 
     def plan(self, specifiers: list[str] = None) -> Generator[str, None, None]:
+        self._validate_acyclic()
+
+        self._applied.clear()
         specifiers = sorted(specifiers or self._target.keys() | self._state.keys())
 
         plan = []
@@ -32,11 +35,21 @@ class ApplyPlanner:
                 yield e
             visited.add(e)
 
+    def _validate_acyclic(self):
+        try:
+            if cycles := nx.find_cycle(
+                    nx.compose(self._delete_deps_graph, self._tools_deps_graph)
+            ):
+                raise ValueError(f"Detected cycles: {cycles}")
+        except nx.NetworkXNoCycle:
+            pass
+
     def _apply_resource(self, plan: list[str], name: str):
         if name in self._applied:
             return
 
         self._applied.add(name)
+
         if name not in self._target:
             self._plan_delete(plan, name)
 
@@ -76,7 +89,8 @@ class ApplyPlanner:
         for dependee in self._delete_deps_graph.predecessors(name):
             self._plan_delete(plan, dependee)
 
-        for tool in self._tools_deps_graph:
+        for tool in self._state[name].tools:
+            self._applied.discard(name)
             self._apply_resource(plan, tool)
 
         plan.append("-" + name)
@@ -87,7 +101,6 @@ class ApplyPlanner:
             deps_graph.add_node(name)
             deps_graph.add_edges_from([(name, d) for d in r.deps])
 
-        assert deps_graph.is_directed()
         return deps_graph
 
     def _generate_tools_deps_graph(self) -> nx.DiGraph:
@@ -95,5 +108,4 @@ class ApplyPlanner:
         for name, r in self._state.items():
             tools_graph.add_edges_from([(name, d) for d in r.tools])
 
-        assert tools_graph.is_directed()
         return tools_graph
